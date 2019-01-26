@@ -1,0 +1,39 @@
+---
+# EXAMPLE
+# -----------------------
+# ansible-playbook -i inventory \
+#                  site.yml \
+#                  --ask-pass --ask-become-pass --user YourAdminUser \
+#                  --extra-vars "runner_token=abcdefghijkl"
+#
+- name: Setup Gitlab Runner Servers
+  hosts: runner-servers
+  become: yes
+  vars:
+    runner_workdir: /var/opt/gitlab-runner
+    runner_user: gitlab-runner
+    runner_version: 11.6.0
+    runner_tags: docker,production
+    default_docker_image: python:3.6
+    # Setting to yes will cause the runner not to create caching containers
+    # Because these are not cleaned up automatically.
+    runner_disable_cache: yes
+    # Override if using an internal PyPi mirror
+    pypi_server: https://pypi.org/simple
+    # Override if using an internal gitlab server
+    gitlab_url: https://gitlab.com
+    # runner_token -> This variable can be specified from CLI to auto register the runner.
+    #                 e.g. ... -e "runner_token=abcdefghijklm"
+  roles:
+    - yum-repo
+    - docker
+    - gitlab-runner
+
+- name: Setup Target Servers
+  hosts: target-servers
+  become: yes
+  vars:
+    deploy_user: gldeploy
+    deploy_group: gldeploy
+  roles:
+    - deploy-user

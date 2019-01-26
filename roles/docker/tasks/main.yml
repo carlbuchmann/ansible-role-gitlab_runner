@@ -1,0 +1,21 @@
+---
+- name: Install docker
+  yum:
+    name:
+      - device-mapper-persistent-data
+      - device-mapper-libs
+      - device-mapper-event-libs
+      - lvm2
+      - docker
+    state: latest
+
+- name: Cleanup yum
+  command: yum clean all
+  ignore_errors: True
+  changed_when: false
+
+- name: Start and enable docker
+  service:
+    name: docker
+    enabled: yes
+    state: started

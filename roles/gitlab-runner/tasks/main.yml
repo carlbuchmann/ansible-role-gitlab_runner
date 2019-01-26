@@ -1,0 +1,87 @@
+---
+- name: Create runner user
+  user:
+    name: "{{ runner_user }}"
+    group: 'users'
+    create_home: yes
+    shell: /bin/bash
+    system: yes
+    generate_ssh_key: yes
+    ssh_key_bits: 4096
+    ssh_key_comment: "{{ runner_user }}@{{ ansible_fqdn }}"
+    state: present
+  register: runner_user_details
+
+- name: Install Gitlab Runner
+  yum:
+    name: "gitlab-runner-{{ runner_version }}"
+    state: installed
+  register: runner_install
+
+- name: Cleanup yum
+  command: yum clean all
+  ignore_errors: True
+  changed_when: false
+
+- name: Runner working directory
+  file:
+    path: "{{ runner_workdir }}"
+    state: directory
+    group: users
+    owner: "{{ runner_user }}"
+    mode: 0770
+
+- name: Check runner service config
+  systemd:
+    name: gitlab-runner
+  register: runner_status
+  changed_when: false
+
+- name: Configure runner service
+  shell: |
+    gitlab-runner uninstall
+    gitlab-runner install --working-directory "{{ runner_workdir }}" --user {{ runner_user }}
+  when: >
+    runner_install.changed or
+    '--working-directory '~runner_workdir not in runner_status.status.ExecStart or
+    '--user '~runner_user not in runner_status.status.ExecStart
+  notify: Restart runner
+
+- name: Set runner concurrency
+  ini_file:
+    path: /etc/gitlab-runner/config.toml
+    section: null
+    option: concurrent
+    value: 10
+    backup: yes
+
+- name: Enable and start service
+  service:
+    name: gitlab-runner
+    state: started
+    enabled: yes
+
+- name: Register runner with docker executor
+  environment:
+  # Note the docker volumes. They share the SSH key
+  # of the gitlab-runner user with the docker container
+  # allowing to use Ansible from within a container with the runner's key
+  command: >
+    gitlab-runner register
+    --description "docker runner on {{ ansible_fqdn }}"
+    --limit 10
+    --tag-list "{{ runner_tags }}"
+    --executor docker
+    --non-interactive
+    --registration-token {{ runner_token }}
+    --url {{ gitlab_url }}
+    --locked
+    {% if runner_disable_cache %}--docker-disable-cache=true{% endif %}
+    --docker-image "{{ default_docker_image }}"
+    --docker-volumes "/home/{{ runner_user }}/.ssh/id_rsa:/root/.ssh/id_rsa:ro"
+    --docker-volumes "/home/{{ runner_user }}/.ssh/id_rsa.pub:/root/.ssh/id_rsa.pub:ro"
+    --docker-volumes "/etc/pki/tls/certs/ca-bundle.crt:/etc/pki/tls/certs/ca-bundle.crt:ro"
+    --environment "PIP_INDEX_URL={{ pypi_server }}"
+    --environment "PIP_CERT=/etc/pki/tls/certs/ca-bundle.crt"
+    --environment "PIP_NO_CACHE_DIR=false"
+  when: runner_token is defined

@@ -1,0 +1,27 @@
+---
+- name: Create deploy group on target servers
+  group:
+    name: "{{ deploy_group }}"
+    system: yes
+    state: present
+
+- name: Create deploy user on target servers
+  user:
+    name: "{{ deploy_user }}"
+    group: "{{ deploy_group }}"
+    system: yes
+    state: present
+
+- name: Give deploy user sudo access on target servers
+  template:
+    src: sudoers.j2
+    dest: "/etc/sudoers.d/network_deploy_user"
+    validate: visudo -cf %s
+
+- name: Install SSH public key on target servers
+  authorized_key:
+    user: "{{ deploy_user }}"
+    key: "{{ hostvars[item]['runner_user_details']['ssh_public_key'] }}"
+    key_options: "from=\"{{ hostvars[item]['ansible_default_ipv4']['address'] }}\""
+    state: present
+  with_items: "{{ groups['runner-servers'] }}"
